@@ -10,7 +10,7 @@
 
 # Comment Markdown Render
 
-Hover over an `md` comment and click **Open Markdown Preview**, or place the cursor in the comment and run **Comment Markdown: Open Preview to the Side**. VS Code opens its built-in Markdown preview beside the source and renders the comment with your Markdown preview settings, including math support.
+Hover over an `md` comment to read it in the editor's Markdown hover. Inline and display math appear directly in the hover. To open the full built-in Markdown preview, place the cursor in the comment and run **Comment Markdown: Open Preview to the Side**.
 
 ## How to Use
 

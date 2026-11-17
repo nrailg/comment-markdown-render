@@ -64,14 +64,20 @@ export function activate(context: vscode.ExtensionContext) {
             }
         }),
         vscode.languages.registerHoverProvider('*', {
-            provideHover(document, position) {
+            async provideHover(document, position) {
                 if (document.uri.scheme === previewScheme) { return; }
                 const comment = commentAt(document, position.line);
                 if (!comment) { return; }
-                const args = encodeURIComponent(JSON.stringify([document.uri.toString(), comment.first]));
-                const link = new vscode.MarkdownString(`[Open Markdown Preview](command:${previewCommand}?${args})`);
-                link.isTrusted = { enabledCommands: [previewCommand] };
-                return new vscode.Hover(link);
+                let markdown = comment.markdown;
+                if (markdown.includes('$') && vscode.workspace.getConfiguration('markdown.math', document.uri).get('enabled', true)) {
+                    const { renderHoverMath } = await import('./mathRenderer.js');
+                    const theme = vscode.window.activeColorTheme.kind;
+                    const light = theme === vscode.ColorThemeKind.Light || theme === vscode.ColorThemeKind.HighContrastLight;
+                    markdown = renderHoverMath(markdown, light ? '#333333' : '#cccccc');
+                }
+                const body = new vscode.MarkdownString(markdown);
+                body.baseUri = document.uri;
+                return new vscode.Hover(body);
             }
         }),
         vscode.commands.registerCommand(previewCommand, async (source?: string, line?: number) => {
