@@ -10,21 +10,11 @@
 
 # Comment Markdown Render
 
-A Visual Studio Code extension that renders Markdown content directly within code comments, including support for LaTeX math expressions. It handles most common comment styles across various programming languages, including multi-line block comments and stacked single-line comments. 
-
-The original motivation was to be able to code in most languages as in a Jupyter notebook, particularly in Formalization languages (e.g., Lean4) where rendering mathematical formulas is particularly useful. 
-
-## Example 
-
-As shown below, when hovering over a comment block starting with the `md` prefix, the extension renders the Markdown content.
-
-<div align="center">
-<img src="media/Lean_example.png" alt="Example of the extension in action" width="80%">
-</div>
+Hover over an `md` comment and click **Open Markdown Preview**, or place the cursor in the comment and run **Comment Markdown: Open Preview to the Side**. VS Code opens its built-in Markdown preview beside the source and renders the comment with your Markdown preview settings, including math support.
 
 ## How to Use
 
-To trigger the Markdown rendering, simply start your comment with the `md` prefix.
+Start the comment with the `md` prefix.
 
 ### Multi-line Blocks
 

@@ -1,114 +1,94 @@
 import * as vscode from 'vscode';
-import { renderToSVG } from './mathRenderer';
 
-export function activate(context: vscode.ExtensionContext) {
-    const blockEnds: { [key: string]: string } = {
-        '/*': '*/', '"""': '"""', "'''": "'''", '/-': '-/'
-    };
+const previewScheme = 'comment-markdown';
+const previewCommand = 'commentMarkdown.openPreview';
+const singleLine = /^\s*(?:\/\/|#|--|;+|%|')\s*md\b:?[ \t]?/;
+const blockStart = /(\/\*+|"""|'''|\/-)\s*md\b:?[ \t]?/;
+const blockEnds: Record<string, string> = { '/*': '*/', '"""': '"""', "'''": "'''", '/-': '-/' };
 
-    const hoverProvider = vscode.languages.registerHoverProvider('*', {
-        provideHover(document, position) {
-            const lineText = document.lineAt(position.line).text;
-            const singleLineRegex = /^\s*(?:\/\/|#|--|;+|%|')\s*md[:\s]*/;
-            const blockStartRegex = /(\/\*+|"""|'''|\/-)\s*md/;
+function commentAt(document: vscode.TextDocument, line: number) {
+    if (line < 0 || line >= document.lineCount) { return; }
+    const text = (index: number) => document.lineAt(index).text;
+    if (singleLine.test(text(line))) {
+        let first = line;
+        let last = line;
+        while (first > 0 && singleLine.test(text(first - 1))) { first--; }
+        while (last + 1 < document.lineCount && singleLine.test(text(last + 1))) { last++; }
+        const lines = [];
+        for (let i = first; i <= last; i++) { lines.push(text(i).replace(singleLine, '')); }
+        return { first, markdown: lines.join('\n') };
+    }
 
-            let markdownRaw: string | null = null;
-            let foundBlock = false;
-
-            if (singleLineRegex.test(lineText)) {
-                let startLine = position.line;
-                let endLine = position.line;
-                while (startLine > 0 && singleLineRegex.test(document.lineAt(startLine - 1).text)) {startLine--;}
-                while (endLine < document.lineCount - 1 && singleLineRegex.test(document.lineAt(endLine + 1).text)) {endLine++;}
-
-                let lines = [];
-                for (let i = startLine; i <= endLine; i++) {
-                    lines.push(document.lineAt(i).text.replace(singleLineRegex, ''));
-                }
-                markdownRaw = lines.join('\n');
-                foundBlock = true;
-            } 
-
-            if (!foundBlock) {
-                let startLine = -1;
-                let blockType = '';
-                
-                for (let i = position.line; i >= Math.max(0, position.line - 100); i--) {
-                    const text = document.lineAt(i).text;
-                    const match = text.match(blockStartRegex);
-                    if (match) {
-                        startLine = i;
-                        
-                        blockType = match[1].startsWith('/*') ? '/*' : match[1];
-                        break;
-                    }
-                    
-                    if (i < position.line && Object.values(blockEnds).some(e => text.includes(e))) {break;}
-                }
-
-                if (startLine !== -1) {
-                    const endMarker = blockEnds[blockType];
-                    let endLine = -1;
-
-                    
-                    for (let i = startLine; i < Math.min(document.lineCount, startLine + 100); i++) {
-                        let text = document.lineAt(i).text;
-                        
-                        if (i === startLine) {
-                            text = text.replace(blockStartRegex, '');
-                        }
-
-                        if (text.includes(endMarker)) {
-                            endLine = i;
-                            break;
-                        }
-                    }
-
-                    if (endLine !== -1 && position.line <= endLine) {
-                        let lines = [];
-                        for (let i = startLine; i <= endLine; i++) {
-                            let t = document.lineAt(i).text;
-                            
-                            
-                            if (i === startLine) {t = t.replace(/^.*?\bmd[:\s]*/, '');}
-                            if (i === endLine) {t = t.split(endMarker)[0];}
-                            
-                            t = t.replace(/^\s*\*\s?/, '');
-                            lines.push(t);
-                        }
-                        markdownRaw = lines.join('\n').trim();
-                    }
+    for (let first = line; first >= Math.max(0, line - 100); first--) {
+        const match = blockStart.exec(text(first));
+        if (match) {
+            const isC = match[1].startsWith('/*');
+            const end = blockEnds[isC ? '/*' : match[1]];
+            const lines = [];
+            for (let i = first; i < document.lineCount; i++) {
+                let body = i === first ? text(i).slice(match.index + match[0].length) : text(i);
+                const close = body.indexOf(end);
+                if (close >= 0) { body = body.slice(0, close); }
+                if (isC && i > first) { body = body.replace(/^\s*\*(?:[ \t]|$)/, ''); }
+                lines.push(body);
+                if (close >= 0) {
+                    if (i < line) { return; }
+                    return { first, markdown: lines.join('\n') };
                 }
             }
-
-            if (!markdownRaw) {return null;}
-
-            try {
-                const isDark = vscode.window.activeColorTheme.kind !== vscode.ColorThemeKind.Light;
-                const textColor = isDark ? '#cccccc' : '#333333';
-
-                markdownRaw = markdownRaw.replace(/\$\$\s*([\s\S]*?)\s*\$\$/g, (_, math) => {
-                    const { svgHtml } = renderToSVG(math, true, textColor);
-                    return `\n\n<p align="center"><img src="data:image/svg+xml;base64,${Buffer.from(svgHtml).toString('base64')}"></p>\n\n`;
-                });
-
-                markdownRaw = markdownRaw.replace(/\$([^\$\n]+)\$/g, (_, math) => {
-                    const { svgHtml } = renderToSVG(math, false, textColor);
-                    return `<img src="data:image/svg+xml;base64,${Buffer.from(svgHtml).toString('base64')}" style="vertical-align:middle;">`;
-                });
-
-                const mdContent = new vscode.MarkdownString(markdownRaw);
-                mdContent.isTrusted = true;
-                mdContent.supportHtml = true;
-                return new vscode.Hover(mdContent);
-            } catch (err) {
-                console.error("Error rendering math:", err);
-                return new vscode.Hover(new vscode.MarkdownString("**Error rendering markdown**"));
-            }
+            return;
         }
-    });
-
-    context.subscriptions.push(hoverProvider);
+        if (first < line && Object.values(blockEnds).some(end => text(first).includes(end))) { return; }
+    }
 }
 
-export function deactivate() {}
+export function activate(context: vscode.ExtensionContext) {
+    const changed = new vscode.EventEmitter<vscode.Uri>();
+    context.subscriptions.push(changed,
+        vscode.workspace.registerTextDocumentContentProvider(previewScheme, {
+            onDidChange: changed.event,
+            async provideTextDocumentContent(uri) {
+                const { source, line } = JSON.parse(uri.query);
+                const sourceUri = vscode.Uri.parse(source);
+                if (sourceUri.scheme === previewScheme) { return ''; }
+                const document = await vscode.workspace.openTextDocument(sourceUri);
+                return commentAt(document, line)?.markdown ?? '';
+            }
+        }),
+        vscode.workspace.onDidChangeTextDocument(({ document }) => {
+            if (document.uri.scheme === previewScheme) { return; }
+            for (const open of vscode.workspace.textDocuments) {
+                if (open.uri.scheme === previewScheme && JSON.parse(open.uri.query).source === document.uri.toString()) {
+                    changed.fire(open.uri);
+                }
+            }
+        }),
+        vscode.languages.registerHoverProvider('*', {
+            provideHover(document, position) {
+                if (document.uri.scheme === previewScheme) { return; }
+                const comment = commentAt(document, position.line);
+                if (!comment) { return; }
+                const args = encodeURIComponent(JSON.stringify([document.uri.toString(), comment.first]));
+                const link = new vscode.MarkdownString(`[Open Markdown Preview](command:${previewCommand}?${args})`);
+                link.isTrusted = { enabledCommands: [previewCommand] };
+                return new vscode.Hover(link);
+            }
+        }),
+        vscode.commands.registerCommand(previewCommand, async (source?: string, line?: number) => {
+            const editor = vscode.window.activeTextEditor;
+            const document = source ? await vscode.workspace.openTextDocument(vscode.Uri.parse(source)) : editor?.document;
+            const at = line ?? editor?.selection.active.line;
+            const comment = document && at !== undefined && commentAt(document, at);
+            if (!document || !comment || document.uri.scheme === previewScheme) {
+                void vscode.window.showInformationMessage('Place the cursor inside an md comment to preview it.');
+                return;
+            }
+            const preview = vscode.Uri.from({
+                scheme: previewScheme,
+                path: `${document.uri.path} (L${comment.first + 1}).md`,
+                query: JSON.stringify({ source: document.uri.toString(), line: comment.first })
+            });
+            await vscode.commands.executeCommand('markdown.showPreviewToSide', preview);
+        })
+    );
+}
